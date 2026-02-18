@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Water Quality Monitoring Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f2f6f9;
+      margin: 0;
+      padding: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+
+    /* Main Card Container */
+    .container {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 40px;
+    }
+
+    .card {
+      width: 250px;
+      padding: 20px;
+      border-radius: 10px;
+      background-color: white;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+
+    .value {
+      font-size: 36px;
+      font-weight: bold;
+      margin: 15px 0;
+    }
+
+    .unit {
+      font-size: 16px;
+      color: #555;
+    }
+
+    .status {
+      font-size: 18px;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+
+    .green { color: green; }
+    .yellow { color: orange; }
+    .red { color: red; }
+
+    /* Styles for the Connection Status Indicator */
+    .status-alert {
+      font-weight: bold;
+      padding: 5px 15px;
+      border-radius: 5px;
+      display: inline-block;
+    }
+    .status-alert.green { background-color: #e6ffe6; color: green; }
+    .status-alert.yellow { background-color: #fffbe6; color: orange; }
+    .status-alert.red { background-color: #ffe6e6; color: red; }
+
+    /* Chart Containers - Smaller size */
+    .chart-layout {
+      display: flex;
+      justify-content: center; 
+    }
+    .chart-container {
+      display: flex;
+      gap: 50px; 
+      margin-top: 50px;
+    }
+
+    .chart-box {
+      width: 320px; 
+      background-color: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    
+    .download-btn {
+        margin-top: 20px;
+        padding: 10px 20px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+    }
+    .download-btn:hover {
+        background-color: #0056b3;
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 40px;
+      color: #777;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h1>IoT Water Quality Monitoring System</h1>
+  
+  <div style="text-align: center; margin-bottom: 20px;">
+    <span id="connectionStatus" class="status-alert yellow">Initializing...</span>
+    <button class="download-btn" onclick="downloadReadings()">Download Last 15 Readings (TXT)</button>
+  </div>
+  
+  <div class="container">
+    <div class="card">
+      <h2>TDS</h2>
+      <div class="value" id="tdsValue">--</div>
+      <div class="unit">ppm</div>
+      <div class="status" id="tdsStatus">Waiting...</div>
+    </div>
+
+    <div class="card">
+      <h2>Turbidity</h2>
+      <div class="value" id="turbidityValue">--</div>
+      <div class="unit">NTU</div>
+      <div class="status" id="turbidityStatus">Waiting...</div>
+    </div>
+
+    <div class="card">
+      <h2>Temperature</h2>
+      <div class="value" id="tempValue">--</div>
+      <div class="unit">°C</div>
+      <div class="status" id="tempStatus">Waiting...</div>
+    </div>
+  </div>
+  
+  <div class="chart-layout">
+      <div class="chart-container">
+        <div class="chart-box">
+          <h2>Historical Trend</h2>
+          <canvas id="historicalChart"></canvas>
+        </div>
+        
+        <div class="chart-box">
+          <h2>Current Status Breakdown</h2>
+          <canvas id="currentStatusChart"></canvas>
+        </div>
+      </div>
+  </div>
+
+  <footer>
+    Data shown is averaged over 3 readings (3-second interval)
+  </footer>
+
+  <script>
+  const MAX_DATA_POINTS = 15;
+  const DATA_STORAGE_KEY = 'waterQualityHistory';
+  let chartData = []; 
+  
+  // --- Chart 1: Historical Trend ---
+  const ctxHistorical = document.getElementById('historicalChart').getContext('2d');
+  const historicalChart = new Chart(ctxHistorical, {
+    type: 'line',
+    data: {
+      labels: [], 
+      datasets: [
+        { label: 'TDS (ppm)', data: [], borderColor: 'rgb(255, 99, 132)', tension: 0.2, yAxisID: 'y' },
+        { label: 'Turbidity (NTU)', data: [], borderColor: 'rgb(54, 162, 235)', tension: 0.2, yAxisID: 'y' },
+        { label: 'Temperature (°C)', data: [], borderColor: 'rgb(75, 192, 192)', tension: 0.2, yAxisID: 'y-temp' }
+      ]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: { title: { display: true, text: 'Reading Index' } },
+        y: { type: 'linear', display: true, position: 'left' },
+        'y-temp': { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } }
+      },
+      animation: false
+    }
+  });
+
+  // --- Chart 2: Current Status (Doughnut) ---
+  const ctxStatus = document.getElementById('currentStatusChart').getContext('2d');
+  const currentStatusChart = new Chart(ctxStatus, {
+    type: 'doughnut',
+    data: {
+      labels: ['TDS', 'Turbidity', 'Temperature'],
+      datasets: [{
+        data: [1, 1, 1],
+        backgroundColor: ['green', 'green', 'green']
+      }]
+    },
+    options: { responsive: true, animation: false }
+  });
+
+  function updateStatus(value, type) {
+    if (type === "tds") {
+      if (value <= 300) return ["Safe", "green"];
+      else if (value <= 500) return ["Moderate", "yellow"];
+      else return ["Unsafe", "red"];
+    }
+    if (type === "turbidity") {
+      if (value <= 5) return ["Clear", "green"];
+      else if (value <= 25) return ["Moderate", "yellow"];
+      else return ["High", "red"];
+    }
+    if (type === "temp") {
+      if (value <= 35) return ["Normal", "green"];
+      else return ["High", "red"];
+    }
+  }
+  
+  function getStatusColor(status) {
+    if (status === "green") return 'rgb(40, 167, 69)';
+    if (status === "yellow") return 'rgb(255, 193, 7)';
+    if (status === "red") return 'rgb(220, 53, 69)';
+    return 'rgb(108, 117, 125)';
+  }
+
+  function updateHistoricalChart() {
+    const labels = Array.from({ length: chartData.length }, (_, i) => (i + 1).toString());
+    historicalChart.data.labels = labels;
+    historicalChart.data.datasets[0].data = chartData.map(item => item.tds);
+    historicalChart.data.datasets[1].data = chartData.map(item => item.turbidity);
+    historicalChart.data.datasets[2].data = chartData.map(item => item.temperature);
+    historicalChart.update();
+  }
+  
+  function downloadReadings() {
+    let content = "Water Quality Monitoring System - Historical Readings\n\n";
+    content += "Index\tTDS (ppm)\tTurbidity (NTU)\tTemperature (°C)\n";
+    content += "--------------------------------------------------------\n";
+
+    chartData.forEach((item, index) => {
+        content += `${index + 1}\t${item.tds.toFixed(1)}\t\t${item.turbidity.toFixed(1)}\t\t${item.temperature.toFixed(1)}\n`;
+    });
+
+    // Filename changed to remove date
+    const filename = `water_quality_log.txt`;
+    
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function fetchData() {
+    const statusElement = document.getElementById("connectionStatus");
+    statusElement.innerText = "Fetching...";
+    statusElement.className = "status-alert yellow";
+    
+    fetch("http://IP_Address/data")
+      .then(response => response.json())
+      .then(data => {
+        const currentTDS = parseFloat(data.tds);
+        const currentTurb = parseFloat(data.turbidity);
+        const currentTemp = parseFloat(data.temperature);
+
+        document.getElementById("tdsValue").innerText = currentTDS.toFixed(1);
+        let tdsStatus = updateStatus(currentTDS, "tds");
+        document.getElementById("tdsStatus").innerText = tdsStatus[0];
+        document.getElementById("tdsStatus").className = "status " + tdsStatus[1];
+
+        document.getElementById("turbidityValue").innerText = currentTurb.toFixed(1);
+        let turbStatus = updateStatus(currentTurb, "turbidity");
+        document.getElementById("turbidityStatus").innerText = turbStatus[0];
+        document.getElementById("turbidityStatus").className = "status " + turbStatus[1];
+
+        document.getElementById("tempValue").innerText = currentTemp.toFixed(1);
+        let tempStatus = updateStatus(currentTemp, "temp");
+        document.getElementById("tempStatus").innerText = tempStatus[0];
+        document.getElementById("tempStatus").className = "status " + tempStatus[1];
+        
+        chartData.push({ tds: currentTDS, turbidity: currentTurb, temperature: currentTemp });
+        if (chartData.length > MAX_DATA_POINTS) chartData.shift();
+        
+        localStorage.setItem(DATA_STORAGE_KEY, JSON.stringify(chartData));
+        updateHistoricalChart();
+
+        currentStatusChart.data.datasets[0].data = [currentTDS, currentTurb, currentTemp];
+        currentStatusChart.data.datasets[0].backgroundColor = [
+            getStatusColor(tdsStatus[1]),
+            getStatusColor(turbStatus[1]),
+            getStatusColor(tempStatus[1])
+        ];
+        currentStatusChart.update();
+        
+        statusElement.innerText = "Connection OK";
+        statusElement.className = "status-alert green";
+      })
+      .catch(error => {
+        statusElement.innerText = "Connection Error";
+        statusElement.className = "status-alert red";
+      });
+  }
+
+  const storedData = localStorage.getItem(DATA_STORAGE_KEY);
+  if (storedData) {
+    chartData = JSON.parse(storedData);
+    updateHistoricalChart();
+  }
+
+  setInterval(fetchData, 10000); 
+  fetchData();
+  </script>
+</body>
+</html>
